@@ -1,5 +1,58 @@
 ---
 - hosts: all
+  become: yes   # Elevate to root
+  vars:
+    APP_MESSAGE: "Hello World"
   tasks:
-    - debug:
-        msg: Hello, world
+    - name: Install Docker with YUM
+      yum: 
+        name: docker
+
+    - name: Start Docker
+      systemd:
+        name: docker
+        state: started
+
+    - name: Install myapp.service systemd file
+      copy:
+        src: /vagrant/myapp.service
+        dest: /etc/systemd/system/myapp.service
+        remote_src: yes
+
+    - name: systemd enable myapp.service
+      systemd:
+        name: myapp
+        enabled: yes
+
+    - name: systemd daemon-reload
+      systemd:
+        daemon_reload: yes
+
+    - name: Wait for docker service to be ready
+      shell: systemctl status docker 2>&1>> /dev/null
+      register: result
+      retries: 10
+      delay: 1
+      until: result.rc == 0
+
+    - name: Copy app files
+      copy:
+        src: /vagrant/app
+        dest: /tmp/build_app/
+        remote_src: yes
+
+    - name: Configure the APP_MESSAGE
+      replace:
+        path: /tmp/build_app/app/main.py
+        regexp: 'APP_MESSAGE'
+        replace: "{{ APP_MESSAGE }}"
+
+    - name: Build the Docker image
+      shell: docker build -t myapp .
+      args:
+        chdir: /tmp/build_app/app
+
+    - name: Start myapp.service
+      systemd:
+        name: myapp
+        state: started
